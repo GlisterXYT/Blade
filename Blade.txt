@@ -8,22 +8,24 @@ local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 
--- ✅ Get Player
-local player = Players.LocalPlayer
-if not player then
-    player = Players.PlayerAdded:Wait()
-end
+-- PLAYER
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 local placeId = game.PlaceId
+local camera = workspace.CurrentCamera
 
--- ✅ HTTP Request Handler
+-- HTTP Request Support
 local httpRequest = request or (syn and syn.request) or (http and http.request)
 if not httpRequest then
-    warn("❌ Your executor doesn't support HTTP requests.")
+    warn("❌ Executor doesn't support HTTP requests.")
     return
 end
 
--- ✅ Send Discord Embed
+-- SEND EMBED TO DISCORD
 local function sendEmbed(title, description, color)
     local embed = {
         title = title,
@@ -33,26 +35,21 @@ local function sendEmbed(title, description, color)
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
     local data = { embeds = { embed } }
-    local jsonData = HttpService:JSONEncode(data)
-
-    local success, res = pcall(function()
-        return httpRequest({
+    local json = HttpService:JSONEncode(data)
+    pcall(function()
+        httpRequest({
             Url = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
-            Body = jsonData
+            Body = json
         })
     end)
-
-    if not success then
-        warn("❌ Webhook failed:", res)
-    end
 end
 
--- ✅ Startup Embed
+-- STARTUP EMBED
 sendEmbed("✅ Blade Ball Tracker Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
 
--- ✅ Safe Teleport
+-- SAFE TELEPORT
 local function safeTeleport()
     while true do
         local success = pcall(function()
@@ -63,17 +60,16 @@ local function safeTeleport()
     end
 end
 
--- 🔌 Reconnect on disconnect
+-- DISCONNECT DETECTED
 GuiService.ErrorMessageChanged:Connect(function(msg)
     if msg and msg ~= "" then
-        warn("Disconnected: " .. msg)
         sendEmbed("❗ Disconnected", "Player disconnected with message:\n```" .. msg .. "```", 0xFF0000)
         wait(2)
         safeTeleport()
     end
 end)
 
--- 🔁 Auto rejoin every hour
+-- AUTO REJOIN HOURLY
 task.spawn(function()
     while true do
         wait(REJOIN_INTERVAL)
@@ -82,7 +78,38 @@ task.spawn(function()
     end
 end)
 
--- 🏆 Win Tracker + Server Hop Logic
+-- LOW GRAPHICS MODE
+task.spawn(function()
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 1000000
+        Lighting.Brightness = 1
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("Decal") or v:IsA("Texture") then
+                v.Transparency = 1
+            elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                v.Enabled = false
+            end
+        end
+    end)
+end)
+
+-- ANTI-AFK RANDOM MOVEMENT + AUTO DOUBLE JUMP
+task.spawn(function()
+    while true do
+        wait(math.random(5, 15))
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp and humanoid then
+            local offset = Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
+            hrp.CFrame = hrp.CFrame + offset
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            wait(0.2)
+            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+    end
+end)
+
+-- WIN TRACKER + SERVER HOP
 local lastWins = 0
 local totalGained = 0
 local noWinIntervals = 0
@@ -93,7 +120,6 @@ local function getCurrentWins()
 end
 
 task.spawn(function()
-    -- Wait for leaderstats to load
     while not (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")) do
         wait(1)
     end
@@ -134,5 +160,28 @@ task.spawn(function()
                 safeTeleport()
             end
         end
+    end
+end)
+
+-- AUTO RANDOM CAMERA ROTATION (every 5 seconds, rotates by 20+ degrees)
+task.spawn(function()
+    local lastYaw = 0
+    while true do
+        wait(5)
+        -- Random yaw between ±20 to 180 degrees in radians
+        local angleDeg = math.random(20, 180)
+        local angleRad = math.rad(angleDeg)
+        local sign = math.random(0,1) == 0 and -1 or 1
+        local newYaw = lastYaw + sign * angleRad
+
+        local camPos = camera.CFrame.Position
+        local newLookVector = Vector3.new(
+            math.sin(newYaw),
+            0,
+            math.cos(newYaw)
+        )
+        camera.CFrame = CFrame.new(camPos, camPos + newLookVector)
+
+        lastYaw = newYaw
     end
 end)
