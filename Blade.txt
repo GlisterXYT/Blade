@@ -9,10 +9,21 @@ local GuiService = game:GetService("GuiService")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 
-local player = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+-- ✅ Get Player
+local player = Players.LocalPlayer
+if not player then
+    player = Players.PlayerAdded:Wait()
+end
 local placeId = game.PlaceId
 
--- Sends a Discord embed message
+-- ✅ HTTP Request Handler
+local httpRequest = request or (syn and syn.request) or (http and http.request)
+if not httpRequest then
+    warn("❌ Your executor doesn't support HTTP requests.")
+    return
+end
+
+-- ✅ Send Discord Embed
 local function sendEmbed(title, description, color)
     local embed = {
         title = title,
@@ -21,27 +32,27 @@ local function sendEmbed(title, description, color)
         footer = { text = "Blade Ball Auto Tracker | User: glisterx" },
         timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
-
     local data = { embeds = { embed } }
     local jsonData = HttpService:JSONEncode(data)
 
-    local success, err = pcall(function()
-        request({
+    local success, res = pcall(function()
+        return httpRequest({
             Url = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
             Body = jsonData
         })
     end)
+
     if not success then
-        warn("Failed to send embed webhook:", err)
+        warn("❌ Webhook failed:", res)
     end
 end
 
--- Initial startup notification
+-- ✅ Startup Embed
 sendEmbed("✅ Blade Ball Tracker Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
 
--- Safe Teleport retry
+-- ✅ Safe Teleport
 local function safeTeleport()
     while true do
         local success = pcall(function()
@@ -52,56 +63,37 @@ local function safeTeleport()
     end
 end
 
--- Reconnect on disconnect error
+-- 🔌 Reconnect on disconnect
 GuiService.ErrorMessageChanged:Connect(function(msg)
     if msg and msg ~= "" then
         warn("Disconnected: " .. msg)
+        sendEmbed("❗ Disconnected", "Player disconnected with message:\n```" .. msg .. "```", 0xFF0000)
         wait(2)
         safeTeleport()
     end
 end)
 
--- Auto rejoin hourly to refresh FPS
+-- 🔁 Auto rejoin every hour
 task.spawn(function()
     while true do
         wait(REJOIN_INTERVAL)
-        warn("Rejoining game to refresh FPS...")
+        sendEmbed("🔄 Hourly Rejoin", "Rejoining server to refresh FPS...", 0x8080FF)
         safeTeleport()
     end
 end)
 
--- Tiny GUI pop-up (show 10s, hide 50s, repeat)
-task.spawn(function()
-    while true do
-        local gui = Instance.new("ScreenGui", game.CoreGui)
-        gui.Name = "TinyNotify"
-
-        local label = Instance.new("TextLabel", gui)
-        label.Text = "Blade Ball Auto Tracker Active"
-        label.Size = UDim2.new(0, 300, 0, 50)
-        label.Position = UDim2.new(0.5, -150, 0.1, 0)
-        label.BackgroundColor3 = Color3.new(0, 0, 0)
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextScaled = true
-
-        wait(10)
-        gui:Destroy()
-        wait(50) -- 60s total cycle
-    end
-end)
-
--- Win tracking variables
+-- 🏆 Win Tracker + Server Hop Logic
 local lastWins = 0
 local totalGained = 0
+local noWinIntervals = 0
 
 local function getCurrentWins()
-    local winsValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")
-    return winsValue and winsValue.Value or 0
+    local stats = player:FindFirstChild("leaderstats")
+    return stats and stats:FindFirstChild("Wins") and stats.Wins.Value or 0
 end
 
--- Win tracker loop
 task.spawn(function()
-    -- Wait for leaderstats and Wins to load
+    -- Wait for leaderstats to load
     while not (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")) do
         wait(1)
     end
@@ -117,23 +109,30 @@ task.spawn(function()
 
         if gained > 0 then
             totalGained += gained
-            sendEmbed(
-                "🏆 Wins Gained!",
+            noWinIntervals = 0
+            sendEmbed("🏆 Wins Gained!",
                 string.format(
                     "You gained **%d** wins in the last 5 minutes.\nTotal wins gained this session: **%d**\nCurrent total wins: **%d**",
                     gained, totalGained, currentWins
                 ),
                 0x00FF00
             )
-        elseif gained == 0 then
-            sendEmbed(
-                "⌛ No Wins Gained",
+        else
+            noWinIntervals += 1
+            sendEmbed("⌛ No Wins Gained",
                 string.format(
                     "No wins gained in the last 5 minutes.\nTotal wins gained this session: **%d**\nCurrent total wins: **%d**",
                     totalGained, currentWins
                 ),
                 0xFFFF00
             )
+
+            if noWinIntervals >= 2 then
+                noWinIntervals = 0
+                sendEmbed("🔁 Server Hop Triggered", "No wins in the last 10 minutes. Switching servers...", 0xFF0000)
+                wait(2)
+                safeTeleport()
+            end
         end
     end
 end)
