@@ -1,4 +1,4 @@
--- VERSION: V3
+_G.BLADEBALL_SCRIPT_VERSION = "V2"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -6,7 +6,6 @@ local CHECK_INTERVAL = 300 -- 5 minutes (wins check)
 local REJOIN_INTERVAL = 3600 -- 1 hour (auto rejoin)
 local UPDATE_CHECK_INTERVAL = 600 -- 10 minutes (script update check)
 local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/refs/heads/main/Blade.txt"
-local VERSION_PREFIX = "-- VERSION: "
 
 -- SERVICES
 local Players = game:GetService("Players")
@@ -114,7 +113,7 @@ local function fetchVersion()
     end)
     if not success or not response then return nil end
     local snippet = response:sub(1, 200)
-    return snippet:match("%-%- VERSION: ([^\r\n]+)")
+    return snippet:match('_G.BLADEBALL_SCRIPT_VERSION = "([^\"]+)"')
 end
 
 -- LOW GRAPHICS
@@ -153,7 +152,8 @@ end
 
 local function main()
     stopScript = false
-    sendEmbed("✅ Blade Ball Tracker " .. (currentVersion or "Unknown") .. " Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
+    currentVersion = fetchVersion() or "Unknown"
+    sendEmbed("✅ Blade Ball Tracker " .. currentVersion .. " Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
     showStartupNotification()
 
     GuiService.ErrorMessageChanged:Connect(function(msg)
@@ -271,5 +271,4 @@ task.spawn(function()
 end)
 
 -- INIT
-currentVersion = fetchVersion() or "Unknown"
 main()
