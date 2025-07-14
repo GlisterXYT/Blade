@@ -1,0 +1,139 @@
+-- CONFIGURATION
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
+local CHECK_INTERVAL = 300 -- 5 minutes
+local REJOIN_INTERVAL = 3600 -- 1 hour
+
+-- SERVICES
+local Players = game:GetService("Players")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+local placeId = game.PlaceId
+
+-- Sends a Discord embed message
+local function sendEmbed(title, description, color)
+    local embed = {
+        title = title,
+        description = description,
+        color = color,
+        footer = { text = "Blade Ball Auto Tracker | User: glisterx" },
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    }
+
+    local data = { embeds = { embed } }
+    local jsonData = HttpService:JSONEncode(data)
+
+    local success, err = pcall(function()
+        request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = jsonData
+        })
+    end)
+    if not success then
+        warn("Failed to send embed webhook:", err)
+    end
+end
+
+-- Initial startup notification
+sendEmbed("✅ Blade Ball Tracker Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
+
+-- Safe Teleport retry
+local function safeTeleport()
+    while true do
+        local success = pcall(function()
+            TeleportService:Teleport(placeId, player)
+        end)
+        if success then break end
+        wait(30)
+    end
+end
+
+-- Reconnect on disconnect error
+GuiService.ErrorMessageChanged:Connect(function(msg)
+    if msg and msg ~= "" then
+        warn("Disconnected: " .. msg)
+        wait(2)
+        safeTeleport()
+    end
+end)
+
+-- Auto rejoin hourly to refresh FPS
+task.spawn(function()
+    while true do
+        wait(REJOIN_INTERVAL)
+        warn("Rejoining game to refresh FPS...")
+        safeTeleport()
+    end
+end)
+
+-- Tiny GUI pop-up (show 10s, hide 50s, repeat)
+task.spawn(function()
+    while true do
+        local gui = Instance.new("ScreenGui", game.CoreGui)
+        gui.Name = "TinyNotify"
+
+        local label = Instance.new("TextLabel", gui)
+        label.Text = "Blade Ball Auto Tracker Active"
+        label.Size = UDim2.new(0, 300, 0, 50)
+        label.Position = UDim2.new(0.5, -150, 0.1, 0)
+        label.BackgroundColor3 = Color3.new(0, 0, 0)
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextScaled = true
+
+        wait(10)
+        gui:Destroy()
+        wait(50) -- 60s total cycle
+    end
+end)
+
+-- Win tracking variables
+local lastWins = 0
+local totalGained = 0
+
+local function getCurrentWins()
+    local winsValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")
+    return winsValue and winsValue.Value or 0
+end
+
+-- Win tracker loop
+task.spawn(function()
+    -- Wait for leaderstats and Wins to load
+    while not (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")) do
+        wait(1)
+    end
+
+    lastWins = getCurrentWins()
+    sendEmbed("📊 Starting Wins", "Current wins: `" .. lastWins .. "`", 0x00FF00)
+
+    while true do
+        wait(CHECK_INTERVAL)
+        local currentWins = getCurrentWins()
+        local gained = currentWins - lastWins
+        lastWins = currentWins
+
+        if gained > 0 then
+            totalGained += gained
+            sendEmbed(
+                "🏆 Wins Gained!",
+                string.format(
+                    "You gained **%d** wins in the last 5 minutes.\nTotal wins gained this session: **%d**\nCurrent total wins: **%d**",
+                    gained, totalGained, currentWins
+                ),
+                0x00FF00
+            )
+        elseif gained == 0 then
+            sendEmbed(
+                "⌛ No Wins Gained",
+                string.format(
+                    "No wins gained in the last 5 minutes.\nTotal wins gained this session: **%d**\nCurrent total wins: **%d**",
+                    totalGained, currentWins
+                ),
+                0xFFFF00
+            )
+        end
+    end
+end)
