@@ -1,6 +1,6 @@
 if not game or not game:IsLoaded() then return end
 
-_G.BLADEBALL_SCRIPT_VERSION = "V3.5"
+_G.BLADEBALL_SCRIPT_VERSION = "V4"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
