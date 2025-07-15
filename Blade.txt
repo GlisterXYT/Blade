@@ -1,4 +1,4 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.4"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.5"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -76,7 +76,7 @@ local function showStartupNotification()
     label.BackgroundColor3 = Color3.new(0, 0, 0)
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker V3.4 Active"
+    label.Text = "Blade Ball Auto Tracker V3.5 Active"
     label.Parent = gui
 
     task.delay(10, function() gui:Destroy() end)
@@ -121,25 +121,33 @@ local function safeTeleport()
     until stopScript
 end
 
--- ==== UPDATE CHECK FUNCTIONS FROM V3.1 ==== --
-local function fetchScript()
-    local success, response = pcall(function()
-        return game:HttpGet(SCRIPT_URL, true)
-    end)
-    return success and response or nil
-end
-
+-- UPDATE CHECK
 local function fetchVersion()
-    local success, response = pcall(function()
-        return game:HttpGet(SCRIPT_URL, true)
+    local ok, res = pcall(function()
+        return game:HttpGet(SCRIPT_URL)
     end)
-    if not success or not response then return nil end
-    local snippet = response:sub(1, 200)
-    return snippet:match('_G.BLADEBALL_SCRIPT_VERSION = "([^\"]+)"')
+    return ok and res:match(VERSION_PREFIX .. "([^"]+)") or nil
 end
 
-local function stopCurrentScript()
-    stopScript = true
+-- GET NEAREST PLAYER FUNCTION (needed for multiple tasks)
+local function getNearestPlayer()
+    local closest = nil
+    local shortestDistance = math.huge
+    local myHRP = character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local theirHRP = p.Character.HumanoidRootPart
+            local dist = (myHRP.Position - theirHRP.Position).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                closest = theirHRP
+            end
+        end
+    end
+
+    return closest, shortestDistance
 end
 
 -- MAIN
@@ -170,35 +178,22 @@ local function main()
         end
     end)
 
-    -- Smart evasion movement with WASD
+    -- Smart evasion movement with WASD (with direction-based hold times)
     task.spawn(function()
-        local keys = {W = Enum.KeyCode.W, A = Enum.KeyCode.A, S = Enum.KeyCode.S, D = Enum.KeyCode.D}
+        local keys = {W = "W", A = "A", S = "S", D = "D"}
 
         local function pressMovement(direction)
             if keys[direction] then
-                pressKey(keys[direction])
-                task.wait(0.1)
-            end
-        end
-
-        local function getNearestPlayer()
-            local closest = nil
-            local shortestDistance = math.huge
-            local myHRP = character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return nil end
-
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    local theirHRP = p.Character.HumanoidRootPart
-                    local dist = (myHRP.Position - theirHRP.Position).Magnitude
-                    if dist < shortestDistance then
-                        shortestDistance = dist
-                        closest = theirHRP
-                    end
+                VirtualInputManager:SendKeyEvent(true, keys[direction], false, game)
+                local holdTime = 1.5
+                if direction == "W" or direction == "S" then
+                    holdTime = 2.0
+                elseif direction == "A" or direction == "D" then
+                    holdTime = 1.0
                 end
+                task.wait(holdTime)
+                VirtualInputManager:SendKeyEvent(false, keys[direction], false, game)
             end
-
-            return closest, shortestDistance
         end
 
         while not stopScript do
@@ -242,38 +237,120 @@ local function main()
                 sendEmbed("⏳ No Wins", "No wins this interval. Total: **"..totalGained.."**, Now: **"..now.."**", 0xFFFF00)
                 if noWinIntervals >= 2 then
                     noWinIntervals = 0
-                    sendEmbed("🔄 Server Hop", "No wins in 10 mins. Hopping...", 0xFF5500)
+                    sendEmbed("✅ Successfully Server Hopped", "No wins in 10 mins, hopping server...", 0x00FF00)
                     safeTeleport()
                 end
             end
         end
     end)
 
-    -- Screen rotate
+    -- Check if any other player has more wins than you; if yes, hop server; else check every 5 minutes
+    task.spawn(function()
+        while not stopScript do
+            task.wait(300) -- 5 minutes
+            local leaderstats = player:FindFirstChild("leaderstats")
+            if not leaderstats then continue end
+            local wins = leaderstats:FindFirstChild("Wins")
+            if not wins then continue end
+            local myWins = wins.Value
+
+            local someoneHasMoreWins = false
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= player then
+                    local pStats = p:FindFirstChild("leaderstats")
+                    if pStats then
+                        local pWins = pStats:FindFirstChild("Wins")
+                        if pWins and pWins.Value > myWins then
+                            someoneHasMoreWins = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            if someoneHasMoreWins then
+                sendEmbed("🔄 Server Hop Triggered", "Another player has more wins. Hopping server...", 0xFF5500)
+                safeTeleport()
+            end
+        end
+    end)
+
+    -- Screen rotate with smooth transitions and reactive behavior
     task.spawn(function()
         local lastYaw = 0
         while not stopScript do
             task.wait(5)
-            local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
-            lastYaw = lastYaw + delta
-            local pos = camera.CFrame.Position
-            camera.CFrame = CFrame.new(pos, pos + Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw)))
+
+            local closestHRP, distance = getNearestPlayer()
+            if closestHRP then
+                if distance <= 10 then
+                    -- Quick random direction spin to scare off close players
+                    local pos = camera.CFrame.Position
+                    local randomYaw = math.rad(math.random(0, 360))
+                    camera.CFrame = CFrame.new(pos, pos + Vector3.new(math.sin(randomYaw), 0, math.cos(randomYaw)))
+                elseif distance <= 30 then
+                    -- Smooth turn to opposite direction for 3 seconds, then back
+                    local pos = camera.CFrame.Position
+                    local oppositeYaw = lastYaw + math.pi
+                    local startCFrame = camera.CFrame
+                    local targetCFrame = CFrame.new(pos, pos + Vector3.new(math.sin(oppositeYaw), 0, math.cos(oppositeYaw)))
+
+                    -- Smoothly rotate to opposite
+                    for i = 0, 1, 0.05 do
+                        camera.CFrame = startCFrame:Lerp(targetCFrame, i)
+                        task.wait(0.05)
+                    end
+
+                    task.wait(3) -- hold for 3 seconds
+
+                    -- Smoothly rotate back
+                    for i = 0, 1, 0.05 do
+                        camera.CFrame = targetCFrame:Lerp(startCFrame, i)
+                        task.wait(0.05)
+                    end
+                else
+                    -- Normal smooth rotation to random angle
+                    local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
+                    lastYaw = lastYaw + delta
+                    local pos = camera.CFrame.Position
+                    local targetLookVector = Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw))
+                    local startCFrame = camera.CFrame
+                    local targetCFrame = CFrame.new(pos, pos + targetLookVector)
+
+                    for i = 0, 1, 0.05 do
+                        camera.CFrame = startCFrame:Lerp(targetCFrame, i)
+                        task.wait(0.05)
+                    end
+                end
+            else
+                -- No player nearby, just smooth rotate randomly
+                local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
+                lastYaw = lastYaw + delta
+                local pos = camera.CFrame.Position
+                local targetLookVector = Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw))
+                local startCFrame = camera.CFrame
+                local targetCFrame = CFrame.new(pos, pos + targetLookVector)
+
+                for i = 0, 1, 0.05 do
+                    camera.CFrame = startCFrame:Lerp(targetCFrame, i)
+                    task.wait(0.05)
+                end
+            end
         end
     end)
 end
 
--- ==== AUTO UPDATE LOOP FROM V3.1 ==== --
+-- Auto update
 task.spawn(function()
     while true do
-        wait(UPDATE_CHECK_INTERVAL)
-        local latestVersion = fetchVersion()
-        if latestVersion and latestVersion ~= currentVersion then
-            sendEmbed("🔄 Script Restart", "New version: **"..latestVersion.."** detected. Restarting...", 0x00FFFF)
-            currentVersion = latestVersion
-            stopCurrentScript()
-            local newScript = fetchScript()
-            if newScript then
-                local f, err = loadstring(newScript)
+        task.wait(UPDATE_CHECK_INTERVAL)
+        local newVer = fetchVersion()
+        if newVer and newVer ~= currentVersion then
+            sendEmbed("🔄 Script Update", "Restarting with new version **"..newVer.."**", 0x00FFFF)
+            stopScript = true
+            local scriptText = game:HttpGet(SCRIPT_URL)
+            if scriptText then
+                local f = loadstring(scriptText)
                 if f then f() return end
             end
         end
