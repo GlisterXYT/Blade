@@ -1,9 +1,9 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.6"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.7"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
 local CHECK_INTERVAL = 300 -- 5 minutes (wins check)
-local REJOIN_INTERVAL = 7200 -- 2 hour (auto rejoin)
+local REJOIN_INTERVAL = 3600 -- 1 hour (auto rejoin)
 local UPDATE_CHECK_INTERVAL = 600 -- 10 minutes (script update check)
 local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/refs/heads/main/Blade.txt"
 local VERSION_PREFIX = '_G.BLADEBALL_SCRIPT_VERSION = "'
