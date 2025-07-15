@@ -1,4 +1,4 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V5"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.6"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -76,7 +76,7 @@ local function showStartupNotification()
     label.BackgroundColor3 = Color3.new(0, 0, 0)
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker V3.5 Active"
+    label.Text = "Blade Ball Auto Tracker V5 Active"
     label.Parent = gui
 
     task.delay(10, function() gui:Destroy() end)
@@ -121,15 +121,30 @@ local function safeTeleport()
     until stopScript
 end
 
--- UPDATE CHECK
-local function fetchVersion()
-    local ok, res = pcall(function()
-        return game:HttpGet(SCRIPT_URL)
+-- FETCH SCRIPT FOR UPDATE
+local function fetchScript()
+    local success, response = pcall(function()
+        return game:HttpGet(SCRIPT_URL, true)
     end)
-    return ok and res:match(VERSION_PREFIX .. "([^"]+)") or nil
+    return success and response or nil
 end
 
--- GET NEAREST PLAYER FUNCTION (needed for multiple tasks)
+-- FETCH VERSION FROM SCRIPT
+local function fetchVersion()
+    local success, response = pcall(function()
+        return game:HttpGet(SCRIPT_URL, true)
+    end)
+    if not success or not response then return nil end
+    local snippet = response:sub(1, 200)
+    return snippet:match('_G.BLADEBALL_SCRIPT_VERSION = "([^\"]+)"')
+end
+
+-- STOP CURRENT SCRIPT
+local function stopCurrentScript()
+    stopScript = true
+end
+
+-- GET NEAREST PLAYER FUNCTION
 local function getNearestPlayer()
     local closest = nil
     local shortestDistance = math.huge
@@ -340,18 +355,30 @@ local function main()
     end)
 end
 
--- Auto update
+-- Auto update with robust error handling
 task.spawn(function()
     while true do
         task.wait(UPDATE_CHECK_INTERVAL)
-        local newVer = fetchVersion()
-        if newVer and newVer ~= currentVersion then
-            sendEmbed("🔄 Script Update", "Restarting with new version **"..newVer.."**", 0x00FFFF)
-            stopScript = true
-            local scriptText = game:HttpGet(SCRIPT_URL)
-            if scriptText then
-                local f = loadstring(scriptText)
-                if f then f() return end
+        local latestVersion = fetchVersion()
+        if latestVersion and latestVersion ~= currentVersion then
+            sendEmbed("🔄 Script Update Detected", "New version: **"..latestVersion.."** found. Attempting to update...", 0x00FFFF)
+            local newScript = fetchScript()
+            if newScript then
+                local f, err = loadstring(newScript)
+                if f then
+                    local success, runtimeErr = pcall(f)
+                    if success then
+                        sendEmbed("✅ Update Successful", "Updated to version **"..latestVersion.."** and running new script.", 0x00FF00)
+                        stopCurrentScript()
+                        return
+                    else
+                        sendEmbed("❌ Update Failed", "Error while running new script:\n```"..runtimeErr.."```", 0xFF0000)
+                    end
+                else
+                    sendEmbed("❌ Update Failed", "Failed to compile new script:\n```"..err.."```", 0xFF0000)
+                end
+            else
+                sendEmbed("❌ Update Failed", "Failed to download new script.", 0xFF0000)
             end
         end
     end
