@@ -1,5 +1,3 @@
-return function()
-
 _G.BLADEBALL_SCRIPT_VERSION = "V3.4"
 
 -- CONFIGURATION
@@ -269,5 +267,3 @@ task.spawn(function()
 end)
 
 main()
-
-end
