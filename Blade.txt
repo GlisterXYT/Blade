@@ -1,6 +1,6 @@
--- Blade Ball Auto Tracker V5
+-- Blade Ball Auto Tracker V5.1
 
-_G.BLADEBALL_SCRIPT_VERSION = "V5"
+_G.BLADEBALL_SCRIPT_VERSION = "V5.1"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -41,6 +41,8 @@ local stopScript = false
 local currentVersion = nil
 local failCount = 0
 local failedVersions = {}
+
+
 
 -- ERROR CODES (for reconnect notifications)
 local errorCodes = {
@@ -137,7 +139,7 @@ local function showStartupNotification()
     label.BackgroundColor3 = Color3.new(0, 0, 0)
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker V3.5 Active"
+    label.Text = "Blade Ball Auto Tracker V5.1 Active"
     label.Parent = gui
 
     task.delay(10, function() gui:Destroy() end)
@@ -241,6 +243,30 @@ local function main()
     applyLowGraphics()
     setupErrorReconnect()
 
+    local PASTEBIN_URL = "https://pastebin.com/raw/ShaTx5rL"
+    local PASTEBIN_CHECK_INTERVAL = 30
+    local REJOIN_TRIGGER = "!rejoin"
+
+    -- Pastebin command polling loop
+    task.spawn(function()
+        while not stopScript do
+            task.wait(PASTEBIN_CHECK_INTERVAL)
+            if stopScript then return end
+
+            local success, content = pcall(function()
+                return game:HttpGet(PASTEBIN_URL)
+            end)
+
+            if success and content then
+                local trimmed = content:match("^%s*(.-)%s*$")
+                if trimmed == REJOIN_TRIGGER then
+                    sendEmbed("🔄 Pastebin Command", "Rejoin command '!rejoin' received via Pastebin. Rejoining now...", 0x3366FF)
+                    safeTeleport()
+                end
+            end
+        end
+    end)
+
     -- Auto rejoin loop (refresh every 2 hours)
     task.spawn(function()
         while not stopScript do
@@ -334,32 +360,6 @@ local function main()
         end
     end)
 end
-
-local PASTEBIN_URL = "https://pastebin.com/raw/ShaTx5rL" -- replace with your Pastebin raw URL
-local PASTEBIN_CHECK_INTERVAL = 30 -- check every 30 seconds
-local REJOIN_TRIGGER = "!rejoin"
-
--- Pastebin command polling loop
-task.spawn(function()
-    while not stopScript do
-        task.wait(PASTEBIN_CHECK_INTERVAL)
-        if stopScript then return end
-
-        local success, content = pcall(function()
-            return game:HttpGet(PASTEBIN_URL)
-        end)
-
-        if success and content then
-            -- trim whitespace
-            local trimmed = content:match("^%s*(.-)%s*$")
-            if trimmed == REJOIN_TRIGGER then
-                sendEmbed("🔄 Pastebin Command", "Rejoin command '!rejoin' received via Pastebin. Rejoining now...", 0x3366FF)
-                safeTeleport()
-            end
-        end
-    end
-end)
-
 
 -- Run update and main
 autoUpdate()
