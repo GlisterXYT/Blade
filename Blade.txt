@@ -1,5 +1,3 @@
-if not game or not game:IsLoaded() then return end
-
 _G.BLADEBALL_SCRIPT_VERSION = "V4"
 
 -- CONFIGURATION
