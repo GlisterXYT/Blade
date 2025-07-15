@@ -1,12 +1,18 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.7"
+if not game or not game:IsLoaded() then return end
+
+_G.BLADEBALL_SCRIPT_VERSION = "V3.5"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
-local CHECK_INTERVAL = 300 -- 5 minutes (wins check)
-local REJOIN_INTERVAL = 3600 -- 1 hour (auto rejoin)
-local UPDATE_CHECK_INTERVAL = 600 -- 10 minutes (script update check)
-local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/refs/heads/main/Blade.txt"
+local CHECK_INTERVAL = 300 -- 5 minutes
+local REJOIN_INTERVAL = 7200 -- 2 hours
+local UPDATE_CHECK_INTERVAL = 300 -- 5 minutes
+local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/main/Blade.txt"
 local VERSION_PREFIX = '_G.BLADEBALL_SCRIPT_VERSION = "'
+
+-- FILE PATHS for Delta Android
+local SKIP_VERSIONS_FILE = "sdcard/Delta/Autoexecute/skip_versions.json"
+local LOG_FILE = "sdcard/Delta/Autoexecute/update_log.txt"
 
 -- SERVICES
 local Players = game:GetService("Players")
@@ -21,29 +27,56 @@ local RunService = game:GetService("RunService")
 -- PLAYER
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
 local camera = workspace.CurrentCamera
 local placeId = game.PlaceId
 
--- HTTP REQUEST
+-- HTTP
 local httpRequest = request or (syn and syn.request) or (http and http.request)
 if not httpRequest then return warn("Executor doesn't support HTTP requests.") end
 
 -- SCRIPT STATE
 local stopScript = false
 local currentVersion = nil
+local failCount = 0
+local failedVersions = {}
 
--- ERROR CODES
-local errorCodes = {
-    [404] = {keyword = "Disconnected", explanation = "You got disconnected from the server."},
-    [412] = {keyword = "Failed to join", explanation = "Failed to join the server."},
-    [865] = {keyword = "Server closed the connection", explanation = "Server closed the connection unexpectedly."},
-    [593] = {keyword = "Timeout", explanation = "Connection timed out."},
-    [724] = {keyword = "Teleport failed", explanation = "Teleportation failed."},
-}
+-- LOAD FILE DATA safely
+pcall(function()
+    if isfile and isfile(SKIP_VERSIONS_FILE) then
+        failedVersions = HttpService:JSONDecode(readfile(SKIP_VERSIONS_FILE))
+    end
+end)
 
--- WEBHOOK
+-- SAVE FAILURE
+local function saveFailures()
+    pcall(function()
+        if writefile then
+            writefile(SKIP_VERSIONS_FILE, HttpService:JSONEncode(failedVersions))
+        end
+    end)
+end
+
+-- LOG TO FILE
+local function logUpdate(version, status)
+    pcall(function()
+        if appendfile then
+            appendfile(LOG_FILE, os.date("[%Y-%m-%d %H:%M:%S] ") .. "Version " .. version .. ": " .. status .. "\n")
+        end
+    end)
+end
+
+-- LOG RUNTIME ERRORS
+local function logRuntimeError(msg)
+    pcall(function()
+        if appendfile then
+            appendfile(LOG_FILE, os.date("[%Y-%m-%d %H:%M:%S] [Runtime Error] " .. msg .. "\n"))
+        end
+    end)
+end
+
+-- DISCORD WEBHOOK
 local function sendEmbed(title, description, color)
+    if stopScript then return end
     local data = HttpService:JSONEncode({
         embeds = {{
             title = title,
@@ -63,51 +96,12 @@ local function sendEmbed(title, description, color)
     end)
 end
 
--- STARTUP GUI
-local function showStartupNotification()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "BladeBallStartupNotifyV3"
-    gui.ResetOnSpawn = false
-    gui.Parent = game.CoreGui
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, 300, 0, 50)
-    label.Position = UDim2.new(0.5, -150, 0.1, 0)
-    label.BackgroundColor3 = Color3.new(0, 0, 0)
-    label.TextColor3 = Color3.new(1, 1, 1)
-    label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker V5 Active"
-    label.Parent = gui
-
-    task.delay(10, function() gui:Destroy() end)
-end
-
--- LOW GRAPHICS
-Lighting.GlobalShadows = false
-Lighting.FogEnd = 1e6
-Lighting.Brightness = 0.5
-Lighting.ClockTime = 14
-Lighting.OutdoorAmbient = Color3.fromRGB(50, 50, 50)
-
-for _, v in ipairs(workspace:GetDescendants()) do
-    if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-        v.Enabled = false
-    elseif v:IsA("Decal") or v:IsA("Texture") then
-        v.Transparency = 1
-    elseif v:IsA("Light") then
-        v.Enabled = false
-    elseif v:IsA("MeshPart") or v:IsA("UnionOperation") or v:IsA("BasePart") then
-        v.Material = Enum.Material.Plastic
-        v.Reflectance = 0
-        if v:IsA("MeshPart") then v.TextureID = "" end
-    end
-end
-
--- PRESS KEY
-local function pressKey(key)
-    VirtualInputManager:SendKeyEvent(true, key, false, game)
-    task.wait(0.05)
-    VirtualInputManager:SendKeyEvent(false, key, false, game)
+-- FETCH VERSION
+local function fetchVersion()
+    local ok, res = pcall(function()
+        return game:HttpGet(SCRIPT_URL)
+    end)
+    return ok and res:match(VERSION_PREFIX .. "([^"]+)") or nil
 end
 
 -- SAFE TELEPORT
@@ -121,267 +115,151 @@ local function safeTeleport()
     until stopScript
 end
 
--- FETCH SCRIPT FOR UPDATE
-local function fetchScript()
-    local success, response = pcall(function()
-        return game:HttpGet(SCRIPT_URL, true)
-    end)
-    return success and response or nil
-end
-
--- FETCH VERSION FROM SCRIPT
-local function fetchVersion()
-    local success, response = pcall(function()
-        return game:HttpGet(SCRIPT_URL, true)
-    end)
-    if not success or not response then return nil end
-    local snippet = response:sub(1, 200)
-    return snippet:match('_G.BLADEBALL_SCRIPT_VERSION = "([^\"]+)"')
-end
-
--- STOP CURRENT SCRIPT
-local function stopCurrentScript()
-    stopScript = true
-end
-
--- GET NEAREST PLAYER FUNCTION
-local function getNearestPlayer()
-    local closest = nil
-    local shortestDistance = math.huge
-    local myHRP = character:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return nil end
-
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            local theirHRP = p.Character.HumanoidRootPart
-            local dist = (myHRP.Position - theirHRP.Position).Magnitude
-            if dist < shortestDistance then
-                shortestDistance = dist
-                closest = theirHRP
-            end
-        end
-    end
-
-    return closest, shortestDistance
-end
-
--- MAIN
-local function main()
-    stopScript = false
-    currentVersion = fetchVersion() or "Unknown"
-    showStartupNotification()
-    sendEmbed("✅ Tracker Started", "Version: **" .. currentVersion .. "**", 0x00FF00)
-
-    -- Error reconnect
-    GuiService.ErrorMessageChanged:Connect(function(msg)
-        if stopScript then return end
-        for code, e in pairs(errorCodes) do
-            if msg:find(e.keyword) then
-                sendEmbed("❗ Disconnected ("..code..")", e.explanation, 0xFF0000)
-                safeTeleport()
-                break
-            end
-        end
-    end)
-
-    -- Hourly rejoin
+-- AUTO-UPDATE
+local function autoUpdate()
     task.spawn(function()
-        while not stopScript do
-            task.wait(REJOIN_INTERVAL)
-            sendEmbed("🔁 Hourly Rejoin", "Rejoining to refresh FPS...", 0x3366FF)
-            safeTeleport()
-        end
-    end)
+        while true do
+            task.wait(UPDATE_CHECK_INTERVAL)
+            if stopScript then return end
 
-    -- Smart evasion movement with WASD (with direction-based hold times)
-    task.spawn(function()
-        local keys = {W = "W", A = "A", S = "S", D = "D"}
+            local newVer = fetchVersion()
+            if newVer and newVer ~= currentVersion and not failedVersions[newVer] then
+                sendEmbed("🔄 Script Update", "New version **" .. newVer .. "** detected. Attempting...", 0x00FFFF)
+                local success, scriptText = pcall(function()
+                    return game:HttpGet(SCRIPT_URL)
+                end)
 
-        local function pressMovement(direction)
-            if keys[direction] then
-                VirtualInputManager:SendKeyEvent(true, keys[direction], false, game)
-                local holdTime = 1.5
-                if direction == "W" or direction == "S" then
-                    holdTime = 2.0
-                elseif direction == "A" or direction == "D" then
-                    holdTime = 1.0
+                if success and type(scriptText) == "string" and scriptText:find("main%(") then
+                    local loadedFunc, err = loadstring(scriptText)
+                    if typeof(loadedFunc) == "function" then
+                        stopScript = true
+                        logUpdate(newVer, "✅ Success")
+                        sendEmbed("✅ Updated", "Now running V" .. newVer, 0x00FF00)
+                        loadedFunc()
+                        return
+                    else
+                        failCount += 1
+                        logUpdate(newVer, "❌ Load error: " .. tostring(err))
+                    end
+                else
+                    failCount += 1
+                    logUpdate(newVer, "❌ Fetch error")
                 end
-                task.wait(holdTime)
-                VirtualInputManager:SendKeyEvent(false, keys[direction], false, game)
+
+                if failCount >= 2 then
+                    failedVersions[newVer] = true
+                    saveFailures()
+                    sendEmbed("⚠️ Skipped Version", "2 fails on V" .. newVer .. ". Will not try again.", 0xFFA500)
+                end
             end
         end
+    end)
+end
 
+-- WRAPPER for safe async task calls with runtime error catch
+local function safeTask(func)
+    task.spawn(function()
         while not stopScript do
-            local myHRP = character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then task.wait(1) continue end
-
-            local closestHRP, distance = getNearestPlayer()
-            if closestHRP and distance < 30 then
-                local diff = myHRP.Position - closestHRP.Position
-                local moveX = math.abs(diff.X) > math.abs(diff.Z) and (diff.X > 0 and "D" or "A") or (diff.Z > 0 and "S" or "W")
-                pressMovement(moveX)
-                pressKey("Space")
-                task.wait(0.3)
-                pressKey("Space")
+            local ok, err = pcall(func)
+            if not ok then
+                logRuntimeError(err)
+                sendEmbed("❌ Runtime Error", tostring(err), 0xFF0000)
+                task.wait(5)
             end
             task.wait(1)
         end
     end)
+end
 
-    -- Win tracking
-    local lastWins = 0
-    local totalGained = 0
-    local noWinIntervals = 0
+-- MAIN FUNCTION
+local function main()
+    currentVersion = fetchVersion() or "Unknown"
+    sendEmbed("✅ Script Loaded", "Blade Ball V" .. currentVersion .. " is now active.", 0x00FF00)
 
-    task.spawn(function()
+    -- Movement AI
+    safeTask(function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local myHRP = char:FindFirstChild("HumanoidRootPart")
+        if not myHRP then task.wait(1) return end
+
+        local closest, dist = nil, math.huge
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local other = p.Character.HumanoidRootPart
+                local d = (myHRP.Position - other.Position).Magnitude
+                if d < dist then
+                    dist = d
+                    closest = other
+                end
+            end
+        end
+
+        if closest and dist < 30 then
+            local offset = myHRP.Position - closest.Position
+            local direction = math.abs(offset.X) > math.abs(offset.Z) and (offset.X > 0 and "D" or "A") or (offset.Z > 0 and "S" or "W")
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode[direction], false, game)
+            task.wait(0.1)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode[direction], false, game)
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        end
+    end)
+
+    -- Win Tracker
+    safeTask(function()
+        local lastWins = 0
+        local gainedTotal = 0
+        local noWinStreak = 0
+
         while not player:FindFirstChild("leaderstats") or not player.leaderstats:FindFirstChild("Wins") do task.wait(1) end
         lastWins = player.leaderstats.Wins.Value
+
         sendEmbed("📊 Starting Wins", "Current: **"..lastWins.."**", 0x00FF00)
 
         while not stopScript do
             task.wait(CHECK_INTERVAL)
             local now = player.leaderstats.Wins.Value
-            local gained = now - lastWins
+            local diff = now - lastWins
             lastWins = now
-            if gained > 0 then
-                totalGained += gained
-                noWinIntervals = 0
-                sendEmbed("🏆 Wins Gained", "Gained **"..gained.."**, Total: **"..totalGained.."**, Now: **"..now.."**", 0x00FF00)
+
+            if diff > 0 then
+                gainedTotal += diff
+                noWinStreak = 0
+                sendEmbed("🏆 Wins Gained", "Gained **"..diff.."**, Total: **"..gainedTotal.."**, Now: **"..now.."**", 0x00FF00)
             else
-                noWinIntervals += 1
-                sendEmbed("⏳ No Wins", "No wins this interval. Total: **"..totalGained.."**, Now: **"..now.."**", 0xFFFF00)
-                if noWinIntervals >= 2 then
-                    noWinIntervals = 0
-                    sendEmbed("✅ Successfully Server Hopped", "No wins in 10 mins, hopping server...", 0x00FF00)
+                noWinStreak += 1
+                sendEmbed("⏳ No Wins", "No wins. Total: **"..gainedTotal.."**, Now: **"..now.."**", 0xFFFF00)
+                if noWinStreak >= 2 then
+                    noWinStreak = 0
+                    sendEmbed("🔄 Server Hop", "No wins in 10 mins. Hopping...", 0xFF5500)
                     safeTeleport()
                 end
             end
         end
     end)
 
-    -- Check if any other player has more wins than you; if yes, hop server; else check every 5 minutes
-    task.spawn(function()
+    -- Hourly Refresh
+    safeTask(function()
         while not stopScript do
-            task.wait(300) -- 5 minutes
-            local leaderstats = player:FindFirstChild("leaderstats")
-            if not leaderstats then continue end
-            local wins = leaderstats:FindFirstChild("Wins")
-            if not wins then continue end
-            local myWins = wins.Value
-
-            local someoneHasMoreWins = false
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= player then
-                    local pStats = p:FindFirstChild("leaderstats")
-                    if pStats then
-                        local pWins = pStats:FindFirstChild("Wins")
-                        if pWins and pWins.Value > myWins then
-                            someoneHasMoreWins = true
-                            break
-                        end
-                    end
-                end
-            end
-
-            if someoneHasMoreWins then
-                sendEmbed("🔄 Server Hop Triggered", "Another player has more wins. Hopping server...", 0xFF5500)
-                safeTeleport()
-            end
+            task.wait(REJOIN_INTERVAL)
+            sendEmbed("🔁 Rejoin", "Rejoining to refresh FPS...", 0x3366FF)
+            safeTeleport()
         end
     end)
 
-    -- Screen rotate with smooth transitions and reactive behavior
-    task.spawn(function()
+    -- Screen Spin
+    safeTask(function()
         local lastYaw = 0
         while not stopScript do
             task.wait(5)
-
-            local closestHRP, distance = getNearestPlayer()
-            if closestHRP then
-                if distance <= 10 then
-                    -- Quick random direction spin to scare off close players
-                    local pos = camera.CFrame.Position
-                    local randomYaw = math.rad(math.random(0, 360))
-                    camera.CFrame = CFrame.new(pos, pos + Vector3.new(math.sin(randomYaw), 0, math.cos(randomYaw)))
-                elseif distance <= 30 then
-                    -- Smooth turn to opposite direction for 3 seconds, then back
-                    local pos = camera.CFrame.Position
-                    local oppositeYaw = lastYaw + math.pi
-                    local startCFrame = camera.CFrame
-                    local targetCFrame = CFrame.new(pos, pos + Vector3.new(math.sin(oppositeYaw), 0, math.cos(oppositeYaw)))
-
-                    -- Smoothly rotate to opposite
-                    for i = 0, 1, 0.05 do
-                        camera.CFrame = startCFrame:Lerp(targetCFrame, i)
-                        task.wait(0.05)
-                    end
-
-                    task.wait(3) -- hold for 3 seconds
-
-                    -- Smoothly rotate back
-                    for i = 0, 1, 0.05 do
-                        camera.CFrame = targetCFrame:Lerp(startCFrame, i)
-                        task.wait(0.05)
-                    end
-                else
-                    -- Normal smooth rotation to random angle
-                    local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
-                    lastYaw = lastYaw + delta
-                    local pos = camera.CFrame.Position
-                    local targetLookVector = Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw))
-                    local startCFrame = camera.CFrame
-                    local targetCFrame = CFrame.new(pos, pos + targetLookVector)
-
-                    for i = 0, 1, 0.05 do
-                        camera.CFrame = startCFrame:Lerp(targetCFrame, i)
-                        task.wait(0.05)
-                    end
-                end
-            else
-                -- No player nearby, just smooth rotate randomly
-                local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
-                lastYaw = lastYaw + delta
-                local pos = camera.CFrame.Position
-                local targetLookVector = Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw))
-                local startCFrame = camera.CFrame
-                local targetCFrame = CFrame.new(pos, pos + targetLookVector)
-
-                for i = 0, 1, 0.05 do
-                    camera.CFrame = startCFrame:Lerp(targetCFrame, i)
-                    task.wait(0.05)
-                end
-            end
+            local delta = math.rad(math.random(60, 180)) * (math.random(0, 1)*2-1)
+            lastYaw += delta
+            local pos = camera.CFrame.Position
+            camera.CFrame = CFrame.new(pos, pos + Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw)))
         end
     end)
 end
 
--- Auto update with robust error handling
-task.spawn(function()
-    while true do
-        task.wait(UPDATE_CHECK_INTERVAL)
-        local latestVersion = fetchVersion()
-        if latestVersion and latestVersion ~= currentVersion then
-            sendEmbed("🔄 Script Update Detected", "New version: **"..latestVersion.."** found. Attempting to update...", 0x00FFFF)
-            local newScript = fetchScript()
-            if newScript then
-                local f, err = loadstring(newScript)
-                if f then
-                    local success, runtimeErr = pcall(f)
-                    if success then
-                        sendEmbed("✅ Update Successful", "Updated to version **"..latestVersion.."** and running new script.", 0x00FF00)
-                        stopCurrentScript()
-                        return
-                    else
-                        sendEmbed("❌ Update Failed", "Error while running new script:\n```"..runtimeErr.."```", 0xFF0000)
-                    end
-                else
-                    sendEmbed("❌ Update Failed", "Failed to compile new script:\n```"..err.."```", 0xFF0000)
-                end
-            else
-                sendEmbed("❌ Update Failed", "Failed to download new script.", 0xFF0000)
-            end
-        end
-    end
-end)
-
+autoUpdate()
 main()
