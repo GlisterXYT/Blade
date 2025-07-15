@@ -1,4 +1,4 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.3"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.4"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -106,7 +106,7 @@ end
 -- PRESS KEY
 local function pressKey(key)
     VirtualInputManager:SendKeyEvent(true, key, false, game)
-    task.wait(0.03)
+    task.wait(0.05)
     VirtualInputManager:SendKeyEvent(false, key, false, game)
 end
 
@@ -157,65 +157,55 @@ local function main()
         end
     end)
 
-    -- Smart random movement and double jump using WASD keys avoiding players
+    -- Smart evasion movement
     task.spawn(function()
-        local keys = {"W", "A", "S", "D"}
-        local function isTooCloseToPlayer(pos)
-            for _, otherPlayer in pairs(Players:GetPlayers()) do
-                if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    local otherPos = otherPlayer.Character.HumanoidRootPart.Position
-                    if (pos - otherPos).Magnitude < 20 then
-                        return true
+        local function getNearestPlayer()
+            local closest = nil
+            local shortestDistance = math.huge
+            local myHRP = character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return nil end
+
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    local theirHRP = p.Character.HumanoidRootPart
+                    local dist = (myHRP.Position - theirHRP.Position).Magnitude
+                    if dist < shortestDistance then
+                        shortestDistance = dist
+                        closest = theirHRP
                     end
                 end
             end
-            return false
+
+            return closest, shortestDistance
         end
 
         while not stopScript do
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if not hrp then
+            local myHRP = character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then
                 task.wait(1)
                 continue
             end
 
-            local chosenKey = nil
-            local chosenPos = nil
-
-            for _ = 1, 10 do
-                local key = keys[math.random(1, #keys)]
-                local directionVector
-                if key == "W" then
-                    directionVector = Vector3.new(0, 0, -10)
-                elseif key == "S" then
-                    directionVector = Vector3.new(0, 0, 10)
-                elseif key == "A" then
-                    directionVector = Vector3.new(-10, 0, 0)
-                else -- "D"
-                    directionVector = Vector3.new(10, 0, 0)
-                end
-
-                local candidatePos = hrp.Position + directionVector
-                if not isTooCloseToPlayer(candidatePos) then
-                    chosenKey = key
-                    chosenPos = candidatePos
-                    break
-                end
-            end
-
-            if chosenKey then
-                -- Press and hold the key for about 2 seconds to move
-                VirtualInputManager:SendKeyEvent(true, chosenKey, false, game)
+            local closestHRP, distance = getNearestPlayer()
+            if closestHRP and distance < 30 then
+                local directionAway = (myHRP.Position - closestHRP.Position).Unit
+                humanoid:Move(directionAway, true)
                 task.wait(2)
-                VirtualInputManager:SendKeyEvent(false, chosenKey, false, game)
-
-                -- Double jump
+                humanoid:Move(Vector3.zero, false)
                 pressKey("Space")
                 task.wait(0.3)
                 pressKey("Space")
             else
-                task.wait(1)
+                local randomAngle = math.rad(math.random(0, 360))
+                local direction = Vector3.new(math.cos(randomAngle), 0, math.sin(randomAngle)).Unit
+                humanoid:Move(direction, true)
+                task.wait(2)
+                humanoid:Move(Vector3.zero, false)
+                pressKey("Space")
+                task.wait(0.3)
+                pressKey("Space")
             end
+            task.wait(1)
         end
     end)
 
