@@ -1,4 +1,4 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.1"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.4"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -6,6 +6,7 @@ local CHECK_INTERVAL = 300 -- 5 minutes (wins check)
 local REJOIN_INTERVAL = 7200 -- 2 hour (auto rejoin)
 local UPDATE_CHECK_INTERVAL = 600 -- 10 minutes (script update check)
 local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/refs/heads/main/Blade.txt"
+local VERSION_PREFIX = '_G.BLADEBALL_SCRIPT_VERSION = "'
 
 -- SERVICES
 local Players = game:GetService("Players")
@@ -15,62 +16,59 @@ local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local StarterGui = game:GetService("StarterGui")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local workspace = workspace
+local RunService = game:GetService("RunService")
 
 -- PLAYER
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local placeId = game.PlaceId
 local camera = workspace.CurrentCamera
+local placeId = game.PlaceId
 
--- HTTP Request Support
+-- HTTP REQUEST
 local httpRequest = request or (syn and syn.request) or (http and http.request)
-if not httpRequest then
-    warn("❌ Executor doesn't support HTTP requests.")
-    return
-end
+if not httpRequest then return warn("Executor doesn't support HTTP requests.") end
 
--- SCRIPT STATE CONTROL
+-- SCRIPT STATE
 local stopScript = false
 local currentVersion = nil
 
--- ERROR CODES WITH EXPLANATIONS
+-- ERROR CODES
 local errorCodes = {
-    [404] = {keyword = "Disconnected", explanation = "You got disconnected from the server. This can happen due to network or server issues."},
-    [412] = {keyword = "Failed to join", explanation = "Failed to join the server, possibly due to full servers or network problems."},
+    [404] = {keyword = "Disconnected", explanation = "You got disconnected from the server."},
+    [412] = {keyword = "Failed to join", explanation = "Failed to join the server."},
     [865] = {keyword = "Server closed the connection", explanation = "Server closed the connection unexpectedly."},
-    [593] = {keyword = "Timeout", explanation = "Connection timed out. Check your internet connection."},
-    [724] = {keyword = "Teleport failed", explanation = "Teleportation to the game failed. Server may be unavailable."},
+    [593] = {keyword = "Timeout", explanation = "Connection timed out."},
+    [724] = {keyword = "Teleport failed", explanation = "Teleportation failed."},
 }
 
--- SEND EMBED TO DISCORD
+-- WEBHOOK
 local function sendEmbed(title, description, color)
-    local embed = {
-        title = title,
-        description = description,
-        color = color,
-        footer = { text = "Blade Ball Auto Tracker " .. (currentVersion or "Unknown") .. " | User: glisterx" },
-        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-    }
-    local data = { embeds = { embed } }
-    local json = HttpService:JSONEncode(data)
+    local data = HttpService:JSONEncode({
+        embeds = {{
+            title = title,
+            description = description,
+            color = color,
+            footer = { text = "Blade Ball Auto Tracker " .. (currentVersion or "Unknown") .. " | User: glisterx" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    })
     pcall(function()
         httpRequest({
             Url = WEBHOOK_URL,
             Method = "POST",
             Headers = { ["Content-Type"] = "application/json" },
-            Body = json
+            Body = data
         })
     end)
 end
 
--- One-time GUI notification
+-- STARTUP GUI
 local function showStartupNotification()
     local gui = Instance.new("ScreenGui")
-    gui.Name = "BladeBallStartupNotifyV2"
+    gui.Name = "BladeBallStartupNotifyV3"
     gui.ResetOnSpawn = false
-    gui.Parent = StarterGui
+    gui.Parent = game.CoreGui
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0, 300, 0, 50)
@@ -78,28 +76,52 @@ local function showStartupNotification()
     label.BackgroundColor3 = Color3.new(0, 0, 0)
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker " .. (currentVersion or "Unknown") .. " Active"
+    label.Text = "Blade Ball Auto Tracker V3.4 Active"
     label.Parent = gui
 
-    task.delay(10, function()
-        gui:Destroy()
-    end)
+    task.delay(10, function() gui:Destroy() end)
 end
 
+-- LOW GRAPHICS
+Lighting.GlobalShadows = false
+Lighting.FogEnd = 1e6
+Lighting.Brightness = 0.5
+Lighting.ClockTime = 14
+Lighting.OutdoorAmbient = Color3.fromRGB(50, 50, 50)
+
+for _, v in ipairs(workspace:GetDescendants()) do
+    if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+        v.Enabled = false
+    elseif v:IsA("Decal") or v:IsA("Texture") then
+        v.Transparency = 1
+    elseif v:IsA("Light") then
+        v.Enabled = false
+    elseif v:IsA("MeshPart") or v:IsA("UnionOperation") or v:IsA("BasePart") then
+        v.Material = Enum.Material.Plastic
+        v.Reflectance = 0
+        if v:IsA("MeshPart") then v.TextureID = "" end
+    end
+end
+
+-- PRESS KEY
+local function pressKey(key)
+    VirtualInputManager:SendKeyEvent(true, key, false, game)
+    task.wait(0.05)
+    VirtualInputManager:SendKeyEvent(false, key, false, game)
+end
+
+-- SAFE TELEPORT
 local function safeTeleport()
-    while not stopScript do
+    repeat
         local success = pcall(function()
             TeleportService:Teleport(placeId, player)
         end)
         if success then break end
-        wait(30)
-    end
+        task.wait(30)
+    until stopScript
 end
 
-local function stopCurrentScript()
-    stopScript = true
-end
-
+-- ==== UPDATE CHECK FUNCTIONS FROM V3.1 ==== --
 local function fetchScript()
     local success, response = pcall(function()
         return game:HttpGet(SCRIPT_URL, true)
@@ -116,143 +138,131 @@ local function fetchVersion()
     return snippet:match('_G.BLADEBALL_SCRIPT_VERSION = "([^\"]+)"')
 end
 
--- LOW GRAPHICS
-task.spawn(function()
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.FogEnd = 1000000
-        Lighting.Brightness = 0.5
-        Lighting.ClockTime = 14
-        Lighting.OutdoorAmbient = Color3.new(0.2, 0.2, 0.2)
-
-        for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
-                v.Enabled = false
-            elseif v:IsA("Decal") or v:IsA("Texture") then
-                v.Transparency = 1
-            elseif v:IsA("Light") then
-                v.Enabled = false
-            elseif v:IsA("MeshPart") or v:IsA("UnionOperation") or v:IsA("BasePart") then
-                v.Material = Enum.Material.Plastic
-                v.Reflectance = 0
-                if v:IsA("MeshPart") then v.TextureID = "" end
-            end
-        end
-
-        if workspace.Terrain then workspace.Terrain:Clear() end
-    end)
-end)
-
--- Helper to simulate key press
-local function pressKey(key)
-    VirtualInputManager:SendKeyEvent(true, key, false, game)
-    task.wait(0.05)
-    VirtualInputManager:SendKeyEvent(false, key, false, game)
+local function stopCurrentScript()
+    stopScript = true
 end
 
+-- MAIN
 local function main()
     stopScript = false
     currentVersion = fetchVersion() or "Unknown"
-    sendEmbed("✅ Blade Ball Tracker " .. currentVersion .. " Started", "Tracking wins for **glisterx** (ID: `876034109`).", 0x00FF00)
     showStartupNotification()
+    sendEmbed("✅ Tracker Started", "Version: **" .. currentVersion .. "**", 0x00FF00)
 
+    -- Error reconnect
     GuiService.ErrorMessageChanged:Connect(function(msg)
         if stopScript then return end
-        if msg and msg ~= "" then
-            local code, explanation = 0, "No explanation available."
-            for k, v in pairs(errorCodes) do
-                if msg:find(v.keyword) then
-                    code = k
-                    explanation = v.explanation
-                    break
+        for code, e in pairs(errorCodes) do
+            if msg:find(e.keyword) then
+                sendEmbed("❗ Disconnected ("..code..")", e.explanation, 0xFF0000)
+                safeTeleport()
+                break
+            end
+        end
+    end)
+
+    -- Hourly rejoin
+    task.spawn(function()
+        while not stopScript do
+            task.wait(REJOIN_INTERVAL)
+            sendEmbed("🔁 Hourly Rejoin", "Rejoining to refresh FPS...", 0x3366FF)
+            safeTeleport()
+        end
+    end)
+
+    -- Smart evasion movement with WASD
+    task.spawn(function()
+        local keys = {W = Enum.KeyCode.W, A = Enum.KeyCode.A, S = Enum.KeyCode.S, D = Enum.KeyCode.D}
+
+        local function pressMovement(direction)
+            if keys[direction] then
+                pressKey(keys[direction])
+                task.wait(0.1)
+            end
+        end
+
+        local function getNearestPlayer()
+            local closest = nil
+            local shortestDistance = math.huge
+            local myHRP = character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return nil end
+
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    local theirHRP = p.Character.HumanoidRootPart
+                    local dist = (myHRP.Position - theirHRP.Position).Magnitude
+                    if dist < shortestDistance then
+                        shortestDistance = dist
+                        closest = theirHRP
+                    end
                 end
             end
-            sendEmbed("❗ Disconnected (Code: " .. code .. ")", "Error: " .. msg .. "\nExplanation: " .. explanation, 0xFF0000)
-            wait(2)
-            safeTeleport()
+
+            return closest, shortestDistance
         end
-    end)
 
-    task.spawn(function()
         while not stopScript do
-            wait(REJOIN_INTERVAL)
-            if stopScript then break end
-            sendEmbed("🔄 2 Hourly Rejoin", "Rejoining server to refresh FPS...", 0x8080FF)
-            safeTeleport()
-        end
-    end)
+            local myHRP = character:FindFirstChild("HumanoidRootPart")
+            if not myHRP then task.wait(1) continue end
 
-    task.spawn(function()
-        while not stopScript do
-            wait(15)
-            if stopScript then break end
-
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local offset = Vector3.new(math.random(10, 15)*(math.random(0,1)*2-1), 0, math.random(10, 15)*(math.random(0,1)*2-1))
-                hrp.CFrame = hrp.CFrame + offset
-
-                -- True double jump
+            local closestHRP, distance = getNearestPlayer()
+            if closestHRP and distance < 30 then
+                local diff = myHRP.Position - closestHRP.Position
+                local moveX = math.abs(diff.X) > math.abs(diff.Z) and (diff.X > 0 and "D" or "A") or (diff.Z > 0 and "S" or "W")
+                pressMovement(moveX)
                 pressKey("Space")
-                wait(0.6)
+                task.wait(0.3)
                 pressKey("Space")
             end
+            task.wait(1)
         end
     end)
 
-    local lastWins, totalGained, noWinIntervals = 0, 0, 0
-    local function getCurrentWins()
-        local stats = player:FindFirstChild("leaderstats")
-        return stats and stats:FindFirstChild("Wins") and stats.Wins.Value or 0
-    end
+    -- Win tracking
+    local lastWins = 0
+    local totalGained = 0
+    local noWinIntervals = 0
 
     task.spawn(function()
-        while not (player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Wins")) do wait(1) end
-        if stopScript then return end
-        lastWins = getCurrentWins()
-        sendEmbed("📊 Starting Wins", "Current wins: `" .. lastWins .. "`", 0x00FF00)
+        while not player:FindFirstChild("leaderstats") or not player.leaderstats:FindFirstChild("Wins") do task.wait(1) end
+        lastWins = player.leaderstats.Wins.Value
+        sendEmbed("📊 Starting Wins", "Current: **"..lastWins.."**", 0x00FF00)
 
         while not stopScript do
-            wait(CHECK_INTERVAL)
-            local currentWins = getCurrentWins()
-            local gained = currentWins - lastWins
-            lastWins = currentWins
-
+            task.wait(CHECK_INTERVAL)
+            local now = player.leaderstats.Wins.Value
+            local gained = now - lastWins
+            lastWins = now
             if gained > 0 then
                 totalGained += gained
                 noWinIntervals = 0
-                sendEmbed("🏆 Wins Gained!", "Gained **" .. gained .. "** wins. Total this session: **" .. totalGained .. "**. Current: **" .. currentWins .. "**", 0x00FF00)
+                sendEmbed("🏆 Wins Gained", "Gained **"..gained.."**, Total: **"..totalGained.."**, Now: **"..now.."**", 0x00FF00)
             else
                 noWinIntervals += 1
-                sendEmbed("⌛ No Wins Gained", "No wins in last 5 mins. Session total: **" .. totalGained .. "**. Current: **" .. currentWins .. "**", 0xFFFF00)
+                sendEmbed("⏳ No Wins", "No wins this interval. Total: **"..totalGained.."**, Now: **"..now.."**", 0xFFFF00)
                 if noWinIntervals >= 2 then
                     noWinIntervals = 0
-                    sendEmbed("🔁 Server Hop Triggered", "Switching servers after 10 mins of no wins...", 0xFF0000)
-                    wait(2)
+                    sendEmbed("🔄 Server Hop", "No wins in 10 mins. Hopping...", 0xFF5500)
                     safeTeleport()
                 end
             end
         end
     end)
 
+    -- Screen rotate
     task.spawn(function()
         local lastYaw = 0
         while not stopScript do
-            wait(5)
-            local angleDeg = math.random(50, 180)
-            local angleRad = math.rad(angleDeg)
-            local sign = math.random(0,1)*2-1
-            local newYaw = lastYaw + sign * angleRad
-
-            local camPos = camera.CFrame.Position
-            local newLookVector = Vector3.new(math.sin(newYaw), 0, math.cos(newYaw))
-            camera.CFrame = CFrame.new(camPos, camPos + newLookVector)
-            lastYaw = newYaw
+            task.wait(5)
+            local delta = math.rad(math.random(50, 180)) * (math.random(0, 1)*2-1)
+            lastYaw = lastYaw + delta
+            local pos = camera.CFrame.Position
+            camera.CFrame = CFrame.new(pos, pos + Vector3.new(math.sin(lastYaw), 0, math.cos(lastYaw)))
         end
     end)
 end
 
--- CHECK FOR SCRIPT UPDATE
+-- ==== AUTO UPDATE LOOP FROM V3.1 ==== --
 task.spawn(function()
     while true do
         wait(UPDATE_CHECK_INTERVAL)
@@ -270,5 +280,4 @@ task.spawn(function()
     end
 end)
 
--- INIT
 main()
