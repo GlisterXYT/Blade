@@ -1,4 +1,4 @@
-_G.BLADEBALL_SCRIPT_VERSION = "V3.4"
+_G.BLADEBALL_SCRIPT_VERSION = "V3.2"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
@@ -157,55 +157,59 @@ local function main()
         end
     end)
 
-    -- Smart evasion movement
+    -- Smart random movement and double jump that avoids players
     task.spawn(function()
-        local function getNearestPlayer()
-            local closest = nil
-            local shortestDistance = math.huge
-            local myHRP = character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return nil end
-
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                    local theirHRP = p.Character.HumanoidRootPart
-                    local dist = (myHRP.Position - theirHRP.Position).Magnitude
-                    if dist < shortestDistance then
-                        shortestDistance = dist
-                        closest = theirHRP
+        local function isTooCloseToPlayer(pos)
+            for _, otherPlayer in pairs(Players:GetPlayers()) do
+                if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local otherPos = otherPlayer.Character.HumanoidRootPart.Position
+                    if (pos - otherPos).Magnitude < 20 then
+                        return true
                     end
                 end
             end
-
-            return closest, shortestDistance
+            return false
         end
 
         while not stopScript do
-            local myHRP = character:FindFirstChild("HumanoidRootPart")
-            if not myHRP then
-                task.wait(1)
-                continue
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not hrp then continue end
+
+            local found = false
+            local targetPos
+
+            for _ = 1, 10 do
+                local angle = math.rad(math.random(0, 360))
+                local radius = math.random(20, 50)
+                local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius
+                local candidatePos = hrp.Position + offset
+                if not isTooCloseToPlayer(candidatePos) then
+                    targetPos = candidatePos
+                    found = true
+                    break
+                end
             end
 
-            local closestHRP, distance = getNearestPlayer()
-            if closestHRP and distance < 30 then
-                local directionAway = (myHRP.Position - closestHRP.Position).Unit
-                humanoid:Move(directionAway, true)
-                task.wait(2)
-                humanoid:Move(Vector3.zero, false)
+            if found and targetPos then
+                humanoid:MoveTo(targetPos)
+
+                local moveDone = false
+                local connection
+                connection = humanoid.MoveToFinished:Connect(function()
+                    moveDone = true
+                    connection:Disconnect()
+                end)
+
+                local startTime = tick()
+                repeat task.wait(0.1) until moveDone or tick() - startTime > 5
+
+                -- Double jump
                 pressKey("Space")
                 task.wait(0.3)
                 pressKey("Space")
             else
-                local randomAngle = math.rad(math.random(0, 360))
-                local direction = Vector3.new(math.cos(randomAngle), 0, math.sin(randomAngle)).Unit
-                humanoid:Move(direction, true)
-                task.wait(2)
-                humanoid:Move(Vector3.zero, false)
-                pressKey("Space")
-                task.wait(0.3)
-                pressKey("Space")
+                task.wait(1)
             end
-            task.wait(1)
         end
     end)
 
