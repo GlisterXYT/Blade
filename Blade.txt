@@ -1,16 +1,14 @@
--- Blade Ball Auto Tracker V5.1
-
-_G.BLADEBALL_SCRIPT_VERSION = "V5.1"
+_G.BLADEBALL_SCRIPT_VERSION = "V6"
 
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
 local CHECK_INTERVAL = 300 -- 5 minutes (win check)
-local REJOIN_INTERVAL = 7200 -- 2 hours (auto rejoin)
+local REJOIN_INTERVAL = 36000 -- 10 hours (auto rejoin)
 local UPDATE_CHECK_INTERVAL = 600 -- 10 minutes (script update check)
 local SCRIPT_URL = "https://raw.githubusercontent.com/GlisterXYT/Blade/main/Blade.txt"
 local VERSION_PREFIX = '_G.BLADEBALL_SCRIPT_VERSION = "'
-local LOG_FILE_PATH = "sdcard/Delta/Autoexecute/update_log.txt"
-local SKIP_VERSIONS_PATH = "sdcard/Delta/Autoexecute/skip_versions.json"
+local LOG_FILE_PATH = "C:\Users\Home\AppData\Local\Xeno\workspace\Blade"
+local SKIP_VERSIONS_PATH = "C:\Users\Home\AppData\Local\Xeno\workspace\Blade"
 
 -- SERVICES
 local Players = game:GetService("Players")
@@ -139,7 +137,7 @@ local function showStartupNotification()
     label.BackgroundColor3 = Color3.new(0, 0, 0)
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextScaled = true
-    label.Text = "Blade Ball Auto Tracker V5.1 Active"
+    label.Text = "Blade Ball Auto Tracker V6 Active"
     label.Parent = gui
 
     task.delay(10, function() gui:Destroy() end)
@@ -238,7 +236,7 @@ end
 local function main()
     stopScript = false
     currentVersion = fetchVersion() or "Unknown"
-    sendEmbed("✅ Script Loaded", "Blade Ball V" .. currentVersion .. " is now active.", 0x00FF00)
+    sendEmbed("✅ Script Loaded", "Blade Ball " .. currentVersion .. " is now active.", 0x00FF00)
     showStartupNotification()
     applyLowGraphics()
     setupErrorReconnect()
@@ -267,7 +265,7 @@ local function main()
         end
     end)
 
-    -- Auto rejoin loop (refresh every 2 hours)
+    -- Auto rejoin loop (refresh every 10 hours)
     task.spawn(function()
         while not stopScript do
             task.wait(REJOIN_INTERVAL)
